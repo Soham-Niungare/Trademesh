@@ -1,0 +1,24 @@
+spring:
+  application:
+    name: matching-engine
+  main:
+    web-application-type: none
+
+grpc:
+  server:
+    port: 9091
+  client:
+    order-service:
+      address: static://${ORDER_SERVICE_HOST:localhost}:${ORDER_SERVICE_GRPC_PORT:9090}
+      negotiationType: PLAINTEXT
+    portfolio-service:
+      address: static://${PORTFOLIO_SERVICE_HOST:localhost}:${PORTFOLIO_SERVICE_GRPC_PORT:9092}
+      negotiationType: PLAINTEXT
+
+trademesh:
+  market-data:
+    base-url: http://${MARKET_DATA_HOST:localhost}:${MARKET_DATA_PORT:8083}
+
+logging:
+  level:
+    com.trademesh: INFO

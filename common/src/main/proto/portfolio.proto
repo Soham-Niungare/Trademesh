@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package trademesh.portfolio;
+
+option java_package = "com.trademesh.grpc.portfolio";
+option java_multiple_files = true;
+option java_outer_classname = "PortfolioProto";
+
+// Implemented by portfolio-service. Called back by matching-engine once an
+// order has been executed so the user's holdings can be updated.
+service PortfolioUpdateService {
+  rpc UpdateHolding(UpdateHoldingRequest) returns (UpdateHoldingResponse);
+}
+
+message UpdateHoldingRequest {
+  string user_id = 1;
+  string symbol = 2;
+  double quantity_delta = 3;
+  double price = 4;
+}
+
+message UpdateHoldingResponse {
+  bool acknowledged = 1;
+}

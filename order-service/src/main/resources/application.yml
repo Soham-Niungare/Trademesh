@@ -1,0 +1,30 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: order-service
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:trademesh_db}
+    username: ${DB_USER:trademesh}
+    password: ${DB_PASSWORD:trademesh}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        default_schema: orders
+        format_sql: true
+    open-in-view: false
+
+grpc:
+  server:
+    port: 9090
+  client:
+    matching-engine:
+      address: static://${MATCHING_ENGINE_HOST:localhost}:${MATCHING_ENGINE_GRPC_PORT:9091}
+      negotiationType: PLAINTEXT
+
+logging:
+  level:
+    com.trademesh: INFO

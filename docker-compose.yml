@@ -1,0 +1,129 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: trademesh-postgres
+    environment:
+      POSTGRES_DB: trademesh_db
+      POSTGRES_USER: trademesh
+      POSTGRES_PASSWORD: trademesh
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./db/init-schemas.sql:/docker-entrypoint-initdb.d/init-schemas.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trademesh -d trademesh_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: auth-service/Dockerfile
+    container_name: trademesh-auth-service
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: trademesh_db
+      DB_USER: trademesh
+      DB_PASSWORD: trademesh
+      JWT_SECRET: dev-only-secret-key-change-me-please-32-bytes-min
+      JWT_EXPIRATION_SECONDS: 3600
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  market-data-service:
+    build:
+      context: .
+      dockerfile: market-data-service/Dockerfile
+    container_name: trademesh-market-data-service
+    ports:
+      - "8083:8083"
+
+  order-service:
+    build:
+      context: .
+      dockerfile: order-service/Dockerfile
+    container_name: trademesh-order-service
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: trademesh_db
+      DB_USER: trademesh
+      DB_PASSWORD: trademesh
+      MATCHING_ENGINE_HOST: matching-engine
+      MATCHING_ENGINE_GRPC_PORT: 9091
+    ports:
+      - "8082:8082"
+      - "9090:9090"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  portfolio-service:
+    build:
+      context: .
+      dockerfile: portfolio-service/Dockerfile
+    container_name: trademesh-portfolio-service
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: trademesh_db
+      DB_USER: trademesh
+      DB_PASSWORD: trademesh
+    ports:
+      - "8084:8084"
+      - "9092:9092"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  matching-engine:
+    build:
+      context: .
+      dockerfile: matching-engine/Dockerfile
+    container_name: trademesh-matching-engine
+    environment:
+      MARKET_DATA_HOST: market-data-service
+      MARKET_DATA_PORT: 8083
+      ORDER_SERVICE_HOST: order-service
+      ORDER_SERVICE_GRPC_PORT: 9090
+      PORTFOLIO_SERVICE_HOST: portfolio-service
+      PORTFOLIO_SERVICE_GRPC_PORT: 9092
+    ports:
+      - "9091:9091"
+    depends_on:
+      - market-data-service
+      - order-service
+      - portfolio-service
+
+  gateway-service:
+    build:
+      context: .
+      dockerfile: gateway-service/Dockerfile
+    container_name: trademesh-gateway-service
+    environment:
+      AUTH_SERVICE_HOST: auth-service
+      AUTH_SERVICE_PORT: 8081
+      ORDER_SERVICE_HOST: order-service
+      ORDER_SERVICE_PORT: 8082
+      MARKET_DATA_HOST: market-data-service
+      MARKET_DATA_PORT: 8083
+      PORTFOLIO_SERVICE_HOST: portfolio-service
+      PORTFOLIO_SERVICE_PORT: 8084
+    ports:
+      - "8080:8080"
+    depends_on:
+      - auth-service
+      - order-service
+      - market-data-service
+      - portfolio-service
+
+volumes:
+  postgres-data:

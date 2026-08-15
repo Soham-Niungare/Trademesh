@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package trademesh.matching;
+
+option java_package = "com.trademesh.grpc.matching";
+option java_multiple_files = true;
+option java_outer_classname = "MatchingProto";
+
+// Implemented by matching-engine. Called by order-service when a new order
+// is created so the matching engine can execute it.
+service MatchingEngineService {
+  rpc SubmitOrder(SubmitOrderRequest) returns (SubmitOrderResponse);
+}
+
+enum Side {
+  SIDE_UNSPECIFIED = 0;
+  BUY = 1;
+  SELL = 2;
+}
+
+message SubmitOrderRequest {
+  string order_id = 1;
+  string user_id = 2;
+  string symbol = 3;
+  Side side = 4;
+  double quantity = 5;
+  double price = 6;
+}
+
+message SubmitOrderResponse {
+  bool accepted = 1;
+  string message = 2;
+}

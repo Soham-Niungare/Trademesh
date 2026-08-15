@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package trademesh.order;
+
+option java_package = "com.trademesh.grpc.order";
+option java_multiple_files = true;
+option java_outer_classname = "OrderProto";
+
+// Implemented by order-service. Called back by matching-engine once an
+// order has been executed (or rejected) so the order record can be updated.
+service OrderStatusService {
+  rpc UpdateOrderStatus(UpdateOrderStatusRequest) returns (UpdateOrderStatusResponse);
+}
+
+enum OrderStatus {
+  ORDER_STATUS_UNSPECIFIED = 0;
+  PENDING = 1;
+  FILLED = 2;
+  REJECTED = 3;
+  CANCELLED = 4;
+}
+
+message UpdateOrderStatusRequest {
+  string order_id = 1;
+  OrderStatus status = 2;
+  double filled_quantity = 3;
+  double fill_price = 4;
+}
+
+message UpdateOrderStatusResponse {
+  bool acknowledged = 1;
+}
