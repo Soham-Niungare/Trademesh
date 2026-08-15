@@ -31,6 +31,19 @@ public class EngineOrder {
 
     public EngineOrder(UUID id, UUID userId, String symbol, OrderSide side, OrderType type,
                         BigDecimal price, BigDecimal quantity) {
+        this(id, userId, symbol, side, type, price, quantity, quantity, OrderStatus.OPEN);
+    }
+
+    /**
+     * Rehydrates an order with explicit {@code remainingQuantity}/{@code status}
+     * rather than assuming a fresh order — used when reconstructing an
+     * {@link EngineOrder} from a persisted (possibly already partially-filled)
+     * DB row, e.g. on startup. The freshly-assigned {@link #getSequence()} does
+     * not need to match the order's original sequence for this to behave
+     * correctly; see {@code OrderBook#restoreRestingOrder}.
+     */
+    public EngineOrder(UUID id, UUID userId, String symbol, OrderSide side, OrderType type,
+                        BigDecimal price, BigDecimal quantity, BigDecimal remainingQuantity, OrderStatus status) {
         if (type == OrderType.LIMIT && price == null) {
             throw new IllegalArgumentException("price is required for LIMIT orders");
         }
@@ -41,8 +54,8 @@ public class EngineOrder {
         this.type = type;
         this.price = price;
         this.quantity = quantity;
-        this.remainingQuantity = quantity;
-        this.status = OrderStatus.OPEN;
+        this.remainingQuantity = remainingQuantity;
+        this.status = status;
         this.sequence = SEQUENCE_GENERATOR.incrementAndGet();
     }
 

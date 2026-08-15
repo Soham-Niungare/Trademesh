@@ -48,7 +48,8 @@ public class OrderBook {
 
         TreeMap<BigDecimal, Deque<EngineOrder>> oppositeLevels =
                 incoming.getSide() == OrderSide.BUY ? sellLevels : buyLevels;
-        List<EngineTrade> trades = match(incoming, oppositeLevels);
+        List<EngineOrder> affectedRestingOrders = new ArrayList<>();
+        List<EngineTrade> trades = match(incoming, oppositeLevels, affectedRestingOrders);
 
         finalizeStatus(incoming);
 
@@ -56,7 +57,32 @@ public class OrderBook {
             rest(incoming);
         }
 
-        return new MatchResult(trades, incoming.getStatus(), incoming.getRemainingQuantity());
+        return new MatchResult(trades, affectedRestingOrders, incoming.getStatus(), incoming.getRemainingQuantity());
+    }
+
+    /**
+     * Inserts an already-resting order directly into its price level, without
+     * running it through matching. For rebuilding a book from orders that were
+     * already persisted as OPEN/PARTIALLY_FILLED in a previous process — those
+     * orders already went through matching once, so re-matching them here would
+     * be wrong. Time priority is preserved only if the caller restores orders in
+     * their original arrival order (oldest first); see docs/matching-engine.md.
+     */
+    public void restoreRestingOrder(EngineOrder order) {
+        if (!symbol.equals(order.getSymbol())) {
+            throw new IllegalArgumentException(
+                    "Order symbol '%s' does not belong to book '%s'".formatted(order.getSymbol(), symbol));
+        }
+        if (order.getType() != OrderType.LIMIT) {
+            throw new IllegalArgumentException("Only LIMIT orders can rest in the book");
+        }
+        if (order.getRemainingQuantity().signum() <= 0) {
+            throw new IllegalArgumentException("Cannot restore an order with no remaining quantity");
+        }
+        if (order.getStatus() != OrderStatus.OPEN && order.getStatus() != OrderStatus.PARTIALLY_FILLED) {
+            throw new IllegalArgumentException("Cannot restore an order with status " + order.getStatus());
+        }
+        rest(order);
     }
 
     public boolean cancelOrder(UUID orderId) {
@@ -88,7 +114,8 @@ public class OrderBook {
      * crosses the best remaining price, or the book is exhausted. Trade price is
      * always the resting order's price, never the incoming order's.
      */
-    private List<EngineTrade> match(EngineOrder incoming, TreeMap<BigDecimal, Deque<EngineOrder>> restingLevels) {
+    private List<EngineTrade> match(EngineOrder incoming, TreeMap<BigDecimal, Deque<EngineOrder>> restingLevels,
+                                     List<EngineOrder> affectedRestingOrders) {
         List<EngineTrade> trades = new ArrayList<>();
 
         while (incoming.getRemainingQuantity().signum() > 0 && !restingLevels.isEmpty()) {
@@ -111,6 +138,7 @@ public class OrderBook {
 
                 incoming.reduceRemainingQuantity(tradeQuantity);
                 resting.reduceRemainingQuantity(tradeQuantity);
+                affectedRestingOrders.add(resting);
 
                 if (resting.getRemainingQuantity().signum() == 0) {
                     resting.setStatus(OrderStatus.FILLED);

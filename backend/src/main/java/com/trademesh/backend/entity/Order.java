@@ -4,8 +4,6 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
@@ -18,8 +16,12 @@ import java.util.UUID;
 @Table(name = "orders")
 public class Order {
 
+    // No @GeneratedValue: the id must be assigned by the caller (TradeService)
+    // before the first save, since it's shared with the in-memory EngineOrder
+    // before persistence happens. Hibernate's GenerationType.UUID generator
+    // unconditionally overwrites any pre-assigned id at insert time, which is
+    // incompatible with that — see docs/phases/phase-03-trade-execution.md.
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
     @Column(nullable = false)
@@ -36,7 +38,8 @@ public class Order {
     @Column(nullable = false)
     private OrderType type;
 
-    @Column(nullable = false, precision = 19, scale = 4)
+    // Nullable: MARKET orders carry no price.
+    @Column(precision = 19, scale = 4)
     private BigDecimal price;
 
     @Column(nullable = false, precision = 19, scale = 4)
