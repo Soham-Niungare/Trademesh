@@ -16,7 +16,8 @@ TradeMesh/
 │   └── phases/
 │       ├── phase-01-backend-setup.md
 │       ├── phase-02-matching-engine.md
-│       └── phase-03-trade-execution.md
+│       ├── phase-03-trade-execution.md
+│       └── phase-04-authentication.md
 ├── docker-compose.yml
 ├── README.md
 └── .gitignore
@@ -51,7 +52,7 @@ return `200` with `"status":"UP"` and a `db` component also `UP`.
 ## Phase status
 
 Tracks the project plan's Phase 0–10 checklist. Phase names below are
-placeholders for 0 and 4–10 pending the source doc — update this table
+placeholders for 0 and 6–10 pending the source doc — update this table
 once the real names are available. This table is the one part of this
 README expected to change every phase; everything else above should stay
 put.
@@ -62,8 +63,8 @@ put.
 | Phase 1 — Backend Setup ([doc](docs/phases/phase-01-backend-setup.md)) | ✅ Done |
 | Phase 2 — Matching Engine Core ([doc](docs/phases/phase-02-matching-engine.md)) | ✅ Done |
 | Phase 3 — Trade Execution & Persistence ([doc](docs/phases/phase-03-trade-execution.md)) | ✅ Done |
-| Phase 4 | 🔜 Next |
-| Phase 5 | ⬜ Not started |
+| Phase 4 — Authentication & Order REST API ([doc](docs/phases/phase-04-authentication.md)) | ✅ Done |
+| Phase 5 — Redis | 🔜 Next |
 | Phase 6 | ⬜ Not started |
 | Phase 7 | ⬜ Not started |
 | Phase 8 | ⬜ Not started |

@@ -16,6 +16,14 @@ spring:
     password: trademesh
     driver-class-name: org.postgresql.Driver
 
+  autoconfigure:
+    exclude:
+      # Security is fully custom (stateless JWT only, no httpBasic/formLogin) --
+      # without this, Boot still stands up a pointless default in-memory user
+      # with a random generated password on every startup, since it sees no
+      # UserDetailsService/AuthenticationProvider/AuthenticationManager bean.
+      - org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
+
 management:
   endpoints:
     web:
@@ -24,6 +32,11 @@ management:
   endpoint:
     health:
       show-details: always
+
+jwt:
+  # Dev-only default (>= 32 bytes, required for HS256) -- override via JWT_SECRET in any real environment.
+  secret: ${JWT_SECRET:dev-only-insecure-secret-change-me-before-any-real-deployment-please}
+  expiration-ms: ${JWT_EXPIRATION_MS:3600000} # 1 hour
 
 ---
 spring:

@@ -4,7 +4,7 @@ High-level system overview. This file grows as later phases add
 components — it's a living document, not a phase log (see
 `docs/phases/` for the history of what shipped when).
 
-## Current shape (through Phase 3)
+## Current shape (through Phase 4)
 
 - **Single Spring Boot monolith.** One Maven module (`backend/`), no
   microservices, no gRPC. See `README.md` for the repo layout.
@@ -23,10 +23,83 @@ components — it's a living document, not a phase log (see
   `OrderBook` per symbol; `OrderBookLoader` / `OrderBookWarmupRunner`
   rebuild the in-memory book from Postgres on startup so a restart
   doesn't silently lose the resting book.
+- **Authentication & the first REST API** (`com.trademesh.backend.security`,
+  `com.trademesh.backend.controller`, Phase 4) — stateless JWT auth
+  gating a `/api/orders/**` REST surface over `TradeService`. See
+  the "Authentication" section below.
 
-Not yet present: authentication/JWT, Redis, WebSocket/market-data
-streaming, REST controllers beyond the actuator health endpoint, and the
+Not yet present: Redis, WebSocket/market-data streaming, and the
 frontend. See the README's phase status table for what's next.
+
+## Authentication
+
+Stateless JWT bearer auth, added in Phase 4 and expected to be the
+mechanism every later phase (Redis-backed caching, WebSocket, the
+frontend) authenticates against — this section is kept current rather
+than left as a one-time phase writeup.
+
+### Request flow
+
+1. `POST /api/auth/register` (`AuthController` → `AuthService`) — creates
+   a `User` row, password hashed with `BCryptPasswordEncoder`. `409` if
+   the username or email is already taken (checked explicitly, so the
+   response says which one collided; a `DataIntegrityViolationException`
+   handler backs this up in case of a race between the check and the
+   insert).
+2. `POST /api/auth/login` — looks up the user, checks the password with
+   `PasswordEncoder.matches`, and on success calls
+   `JwtService.issue(userId, username)` for a signed token. Wrong
+   password and unknown username both throw the same
+   `InvalidCredentialsException` → the same `401` → the same message, so
+   the response can't be used to enumerate valid usernames.
+3. Every other route requires a `Bearer` token. `JwtAuthenticationFilter`
+   (a plain `OncePerRequestFilter`, registered ahead of
+   `UsernamePasswordAuthenticationFilter` — see `SecurityConfig`) reads
+   the header, calls `JwtService.parse`, and on success sets the token's
+   subject (the user's id, as a `UUID`) as the `Authentication` principal.
+   `JwtService` itself fails loudly — invalid/expired/tampered/malformed
+   all throw `JwtException` (or `IllegalArgumentException` for a garbage
+   subject) — and the filter is where that gets caught and turned into
+   "leave the request unauthenticated," not swallowed silently.
+4. A request that reaches a protected route with no valid authentication
+   is rejected by Spring Security's authorization rules before any
+   controller runs. `RestAuthenticationEntryPoint` is registered
+   specifically so that rejection comes back as `401` with the same JSON
+   error shape `GlobalExceptionHandler` uses elsewhere — Spring
+   Security's actual default here (with no `httpBasic`/`formLogin`
+   configured) is `Http403ForbiddenEntryPoint`, i.e. a silent `403`
+   instead; this is the fix for that, not a hand-rolled response format.
+
+Nothing here uses Spring Security's own `AuthenticationManager`/
+`UserDetailsService` machinery — login is a plain REST call that verifies
+credentials directly and hands back a token. Spring Security is used only
+for the stateless bearer-token filter chain and its authorization rules.
+
+### Order ownership: 404, not 403, for someone else's order
+
+`OrderController` takes `userId` exclusively from
+`@AuthenticationPrincipal` (the JWT subject) — `CreateOrderRequest` has no
+`userId` field at all, and is annotated
+`@JsonIgnoreProperties(ignoreUnknown = true)` so a client-supplied
+`userId` in the JSON body is silently dropped rather than read or
+rejected. There is no code path where a request body can determine whose
+order gets placed, touched, or cancelled.
+
+Fetching or cancelling another user's order returns `404`, not `403`:
+`OrderController.findOwnedOrder` throws the exact same
+`OrderNotFoundException` whether the order genuinely doesn't exist or
+exists but belongs to someone else, so a non-owner gets no signal that
+the order is even there. This is deliberate — it's the same reasoning as
+the login-enumeration point above, applied to resource existence instead
+of usernames.
+
+### Secret and expiry
+
+`jwt.secret` / `jwt.expiration-ms` in `application.yml`, overridable via
+the `JWT_SECRET` / `JWT_EXPIRATION_MS` env vars. The checked-in default
+secret is dev-only (long enough for HS256's 256-bit minimum, but public
+in source control) — any real deployment must override it via env var,
+same pattern as the Postgres credentials.
 
 ## Known limitations
 
