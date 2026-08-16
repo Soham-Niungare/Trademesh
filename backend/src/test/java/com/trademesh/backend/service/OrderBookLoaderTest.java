@@ -51,15 +51,15 @@ class OrderBookLoaderTest {
 
     private int sequenceCounter = 0;
 
-    private Order persistOrder(String symbol, OrderSide side, String price, String quantity,
+    private Order persistOrder(String symbol, OrderSide side, OrderType type, String price, String quantity,
                                 String remainingQuantity, OrderStatus status) {
         Order order = new Order();
         order.setId(UUID.randomUUID());
         order.setUserId(UUID.randomUUID());
         order.setSymbol(symbol);
         order.setSide(side);
-        order.setType(OrderType.LIMIT);
-        order.setPrice(new BigDecimal(price));
+        order.setType(type);
+        order.setPrice(price == null ? null : new BigDecimal(price));
         order.setQuantity(new BigDecimal(quantity));
         order.setRemainingQuantity(new BigDecimal(remainingQuantity));
         order.setStatus(status);
@@ -78,17 +78,25 @@ class OrderBookLoaderTest {
     void reload_rebuildsBookFromPersistedRestingOrdersAndPreservesTimePriority() {
         String symbol = "RELOAD-" + UUID.randomUUID();
 
-        Order olderRestingSell = persistOrder(symbol, OrderSide.SELL, "100", "50", "50", OrderStatus.OPEN);
-        persistOrder(symbol, OrderSide.SELL, "100", "30", "30", OrderStatus.OPEN); // same price, arrived later
-        persistOrder(symbol, OrderSide.BUY, "95", "20", "12", OrderStatus.PARTIALLY_FILLED);
-        persistOrder(symbol, OrderSide.SELL, "105", "10", "0", OrderStatus.FILLED); // must be excluded from reload
-        persistOrder(symbol, OrderSide.BUY, "90", "5", "0", OrderStatus.CANCELLED); // must be excluded from reload
+        Order olderRestingSell =
+                persistOrder(symbol, OrderSide.SELL, OrderType.LIMIT, "100", "50", "50", OrderStatus.OPEN);
+        persistOrder(symbol, OrderSide.SELL, OrderType.LIMIT, "100", "30", "30", OrderStatus.OPEN); // same price, arrived later
+        persistOrder(symbol, OrderSide.BUY, OrderType.LIMIT, "95", "20", "12", OrderStatus.PARTIALLY_FILLED);
+        persistOrder(symbol, OrderSide.SELL, OrderType.LIMIT, "105", "10", "0", OrderStatus.FILLED); // must be excluded from reload
+        persistOrder(symbol, OrderSide.BUY, OrderType.LIMIT, "90", "5", "0", OrderStatus.CANCELLED); // must be excluded from reload
+        // Regression case: a MARKET order that doesn't fully fill is still
+        // persisted with status OPEN (see docs/matching-engine.md), but it never
+        // rested in any book -- OrderBook.restoreRestingOrder rejects non-LIMIT
+        // orders outright. Before OrderRepository's query filtered on type too, a
+        // row like this crashed OrderBookWarmupRunner on every startup for as
+        // long as it existed.
+        persistOrder(symbol, OrderSide.BUY, OrderType.MARKET, null, "8", "8", OrderStatus.OPEN);
 
-        List<Order> restingOrders = orderRepository.findByStatusInOrderByCreatedAtAsc(
-                List.of(OrderStatus.OPEN, OrderStatus.PARTIALLY_FILLED));
+        List<Order> restingOrders = orderRepository.findByTypeAndStatusInOrderByCreatedAtAsc(
+                OrderType.LIMIT, List.of(OrderStatus.OPEN, OrderStatus.PARTIALLY_FILLED));
 
         OrderBookRegistry registry = new OrderBookRegistry();
-        new OrderBookLoader().reload(restingOrders, registry);
+        new OrderBookLoader().reload(restingOrders, registry); // must not throw
 
         OrderBookSnapshot snapshot = registry.getOrCreate(symbol).getSnapshot();
 
@@ -98,7 +106,7 @@ class OrderBookLoaderTest {
 
         assertEquals(1, snapshot.bids().size());
         assertMoneyEquals("95", snapshot.bids().get(0).price());
-        assertMoneyEquals("12", snapshot.bids().get(0).totalQuantity());
+        assertMoneyEquals("12", snapshot.bids().get(0).totalQuantity()); // the MARKET order's 8 must NOT be included
 
         // Time priority survived the reload: the older same-price sell fills first.
         EngineOrder incomingBuy = new EngineOrder(UUID.randomUUID(), UUID.randomUUID(), symbol, OrderSide.BUY,

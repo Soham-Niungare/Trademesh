@@ -4,7 +4,7 @@ High-level system overview. This file grows as later phases add
 components — it's a living document, not a phase log (see
 `docs/phases/` for the history of what shipped when).
 
-## Current shape (through Phase 4)
+## Current shape (through Phase 5)
 
 - **Single Spring Boot monolith.** One Maven module (`backend/`), no
   microservices, no gRPC. See `README.md` for the repo layout.
@@ -27,9 +27,14 @@ components — it's a living document, not a phase log (see
   `com.trademesh.backend.controller`, Phase 4) — stateless JWT auth
   gating a `/api/orders/**` REST surface over `TradeService`. See
   the "Authentication" section below.
+- **Redis market-data projection** (`com.trademesh.backend.service`,
+  Phase 5) — `MarketDataService` keeps a per-symbol, aggregated
+  price-level snapshot in Redis, refreshed after every trade/cancel and
+  rebuildable from Postgres on demand. See `docs/market-data.md` for the
+  design.
 
-Not yet present: Redis, WebSocket/market-data streaming, and the
-frontend. See the README's phase status table for what's next.
+Not yet present: WebSocket/real-time streaming and the frontend. See the
+README's phase status table for what's next.
 
 ## Authentication
 

@@ -3,6 +3,7 @@ package com.trademesh.backend.security;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -43,6 +44,14 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/**", "/actuator/health").permitAll()
+                        // Market data is a read-only, price-level-aggregated view with no
+                        // per-order/per-user detail -- public in a real exchange, and the
+                        // dashboard (§14/Phase 7) is expected to show the book before login.
+                        // Scoped to GET specifically so a future authenticated/admin write
+                        // under /api/market/** (e.g. a manual-rebuild trigger) doesn't
+                        // inherit this by accident -- it would fall through to the
+                        // authenticated-by-default rule below instead.
+                        .requestMatchers(HttpMethod.GET, "/api/market/**").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(handling -> handling
                         .authenticationEntryPoint(new RestAuthenticationEntryPoint(objectMapper)))

@@ -4,6 +4,7 @@ import com.trademesh.backend.exception.DuplicateUserException;
 import com.trademesh.backend.exception.InvalidCredentialsException;
 import com.trademesh.backend.exception.OrderNotCancellableException;
 import com.trademesh.backend.exception.OrderNotFoundException;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -56,6 +57,17 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ErrorResponse> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
         return respond(HttpStatus.CONFLICT, "A record with conflicting unique data already exists");
+    }
+
+    /**
+     * Redis being unreachable on a market-data READ (unlike a write -- see
+     * MarketDataService, which catches and logs those instead). More specific
+     * DataAccessException subtypes (e.g. DataIntegrityViolationException above)
+     * still win over this broader handler.
+     */
+    @ExceptionHandler(DataAccessException.class)
+    public ResponseEntity<ErrorResponse> handleDataAccessException(DataAccessException ex) {
+        return respond(HttpStatus.SERVICE_UNAVAILABLE, "Market data is temporarily unavailable");
     }
 
     @ExceptionHandler(InvalidCredentialsException.class)

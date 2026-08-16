@@ -16,5 +16,20 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    container_name: trademesh-redis
+    ports:
+      - "6379:6379"
+    # No volume: Redis here is a derived, fully rebuildable market-data
+    # projection (see docs/architecture.md), never a source of truth --
+    # losing it on restart is fine, OrderBookWarmupRunner rebuilds it from
+    # Postgres on every boot.
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
 volumes:
   postgres_data:

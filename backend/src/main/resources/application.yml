@@ -16,6 +16,11 @@ spring:
     password: trademesh
     driver-class-name: org.postgresql.Driver
 
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
   autoconfigure:
     exclude:
       # Security is fully custom (stateless JWT only, no httpBasic/formLogin) --
@@ -48,3 +53,7 @@ spring:
     url: jdbc:postgresql://postgres:5432/trademesh
     username: trademesh
     password: trademesh
+
+  data:
+    redis:
+      host: redis
