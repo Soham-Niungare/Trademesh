@@ -6,9 +6,12 @@ import com.trademesh.backend.engine.OrderBookSnapshot;
 import com.trademesh.backend.entity.Order;
 import com.trademesh.backend.entity.OrderStatus;
 import com.trademesh.backend.entity.OrderType;
+import com.trademesh.backend.event.OrderCancelledEvent;
+import com.trademesh.backend.event.TradeExecutedEvent;
 import com.trademesh.backend.repository.OrderRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.event.EventListener;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -46,10 +49,32 @@ public class MarketDataService {
     }
 
     /**
+     * Reacts to {@link TradeExecutedEvent}/{@link OrderCancelledEvent} -- published
+     * by {@code TradeService} strictly after its DB transaction has already
+     * committed (see docs/websocket.md for the full event design) -- by
+     * refreshing that symbol's snapshot. Since Phase 6, this is the only trigger;
+     * {@code TradeService} no longer calls {@link #updateSnapshot(String)} (or
+     * this class at all) directly. Deliberately still re-derives the snapshot via
+     * {@link #updateSnapshot(String)} rather than trusting the snapshot the event
+     * already carries -- that logic predates the event-based trigger and is
+     * unchanged by it.
+     */
+    @EventListener
+    public void onTradeExecuted(TradeExecutedEvent event) {
+        updateSnapshot(event.symbol());
+    }
+
+    /** See {@link #onTradeExecuted(TradeExecutedEvent)}. */
+    @EventListener
+    public void onOrderCancelled(OrderCancelledEvent event) {
+        updateSnapshot(event.symbol());
+    }
+
+    /**
      * Refreshes {@code symbol}'s Redis snapshot from the live, authoritative
-     * in-memory {@code OrderBook} -- not from Postgres. Called by
-     * {@code TradeService} strictly after its DB transaction has already
-     * committed (see docs/architecture.md for why the ordering matters).
+     * in-memory {@code OrderBook} -- not from Postgres. Still public: nothing
+     * about this logic is specific to being event-triggered, and a future caller
+     * may reasonably want to invoke it directly.
      */
     public void updateSnapshot(String symbol) {
         writeSnapshot(orderBookRegistry.getOrCreate(symbol).getSnapshot());

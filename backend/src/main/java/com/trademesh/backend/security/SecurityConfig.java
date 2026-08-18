@@ -43,7 +43,12 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/auth/**", "/actuator/health").permitAll()
+                        // /ws/** is the STOMP/SockJS handshake + transport-negotiation
+                        // path (info, xhr-streaming, xhr, websocket, ...) -- SockJS's
+                        // fallback transports genuinely need more than GET (POST for
+                        // polling, OPTIONS for preflight), unlike /api/market/** below,
+                        // so this isn't scoped to one HTTP method.
+                        .requestMatchers("/api/auth/**", "/actuator/health", "/ws/**").permitAll()
                         // Market data is a read-only, price-level-aggregated view with no
                         // per-order/per-user detail -- public in a real exchange, and the
                         // dashboard (§14/Phase 7) is expected to show the book before login.

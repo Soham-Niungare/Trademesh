@@ -4,7 +4,7 @@ High-level system overview. This file grows as later phases add
 components — it's a living document, not a phase log (see
 `docs/phases/` for the history of what shipped when).
 
-## Current shape (through Phase 5)
+## Current shape (through Phase 6)
 
 - **Single Spring Boot monolith.** One Maven module (`backend/`), no
   microservices, no gRPC. See `README.md` for the repo layout.
@@ -32,9 +32,16 @@ components — it's a living document, not a phase log (see
   price-level snapshot in Redis, refreshed after every trade/cancel and
   rebuildable from Postgres on demand. See `docs/market-data.md` for the
   design.
+- **Internal event hook + WebSocket** (`com.trademesh.backend.event`,
+  `com.trademesh.backend.websocket`, Phase 6) — `TradeService` publishes
+  `TradeExecutedEvent`/`OrderCancelledEvent` after each transaction
+  commits instead of calling downstream services directly;
+  `MarketDataService`'s Redis refresh and the new `WebSocketPublisher`
+  (STOMP over WebSocket, public, per-symbol topics) both react to the
+  same events independently. See `docs/websocket.md` for the design.
 
-Not yet present: WebSocket/real-time streaming and the frontend. See the
-README's phase status table for what's next.
+Not yet present: the frontend. See the README's phase status table for
+what's next.
 
 ## Authentication
 
