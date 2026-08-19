@@ -43,6 +43,12 @@ jwt:
   secret: ${JWT_SECRET:dev-only-insecure-secret-change-me-before-any-real-deployment-please}
   expiration-ms: ${JWT_EXPIRATION_MS:3600000} # 1 hour
 
+cors:
+  # Origins allowed to call /api/** from a browser (see CorsConfig). Defaults to
+  # the local Next.js dev server; override with CORS_ALLOWED_ORIGINS (comma-separated)
+  # to point at a deployed frontend without rebuilding.
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+
 ---
 spring:
   config:

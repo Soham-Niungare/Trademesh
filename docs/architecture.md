@@ -4,7 +4,7 @@ High-level system overview. This file grows as later phases add
 components — it's a living document, not a phase log (see
 `docs/phases/` for the history of what shipped when).
 
-## Current shape (through Phase 6)
+## Current shape (through Phase 7)
 
 - **Single Spring Boot monolith.** One Maven module (`backend/`), no
   microservices, no gRPC. See `README.md` for the repo layout.
@@ -39,9 +39,20 @@ components — it's a living document, not a phase log (see
   `MarketDataService`'s Redis refresh and the new `WebSocketPublisher`
   (STOMP over WebSocket, public, per-symbol topics) both react to the
   same events independently. See `docs/websocket.md` for the design.
-
-Not yet present: the frontend. See the README's phase status table for
-what's next.
+- **Frontend** (`frontend/`, Phase 7) — a Next.js dashboard (App Router,
+  TypeScript, Tailwind CSS) consuming all three surfaces above: the REST
+  API for auth and orders, the market-data endpoint for the initial book,
+  and the WebSocket topics for live updates via `@stomp/stompjs` over
+  SockJS. The first code outside `backend/`, and a separate process — the
+  backend serves no HTML. See
+  `docs/phases/phase-07-frontend.md` for the design (state approach, JWT
+  storage, reconnect handling), and `frontend/README.md` for how to run it.
+- **CORS** (`com.trademesh.backend.security.CorsConfig`, Phase 7) — added
+  so a browser on another origin can call `/api/**` at all. Origins come
+  from `cors.allowed-origins` (`CORS_ALLOWED_ORIGINS`-overridable), and
+  `/ws/**` is mapped separately to preserve the origin policy
+  `WebSocketConfig` already declares rather than narrowing it. See the
+  Phase 7 doc for why that second mapping is load-bearing.
 
 ## Authentication
 

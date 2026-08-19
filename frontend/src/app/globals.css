@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+/*
+ * Single dark theme. A trading dashboard is read at a glance and leans hard on
+ * colour to distinguish bid from ask, so it commits to one palette rather than
+ * following the OS light/dark preference.
+ */
+:root {
+  --background: #020617;
+  --foreground: #e2e8f0;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* Numeric columns must not jitter as prices tick. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}

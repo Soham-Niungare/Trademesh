@@ -1,6 +1,8 @@
 # TradeMesh
 
-A single-module Spring Boot backend (monolith) for a trading platform.
+A trading platform: a single-module Spring Boot backend (monolith) and a
+Next.js frontend, run as two separate processes — the backend serves no
+HTML.
 
 ## Repository structure
 
@@ -10,6 +12,11 @@ TradeMesh/
 │   ├── src/
 │   ├── pom.xml
 │   └── Dockerfile
+├── frontend/
+│   ├── src/
+│   ├── .env.example
+│   ├── package.json
+│   └── README.md
 ├── docs/
 │   ├── architecture.md
 │   ├── market-data.md
@@ -21,7 +28,8 @@ TradeMesh/
 │       ├── phase-03-trade-execution.md
 │       ├── phase-04-authentication.md
 │       ├── phase-05-redis-market-data.md
-│       └── phase-06-websocket.md
+│       ├── phase-06-websocket.md
+│       └── phase-07-frontend.md
 ├── docker-compose.yml
 ├── README.md
 └── .gitignore
@@ -32,17 +40,33 @@ TradeMesh/
 - Java 21 (JDK)
 - Maven
 - Docker + Docker Compose (for running Postgres and Redis)
+- Node.js 20+ and npm (for the frontend)
 
 ## Quick start
 
+Three processes, in this order:
+
 ```
-docker compose up -d      # starts Postgres and Redis
+docker compose up -d      # 1. Postgres and Redis
+
 cd backend
-mvn spring-boot:run       # starts the app against them
+mvn spring-boot:run       # 2. backend on :8080
+
+cd ../frontend
+npm install               # first run only
+npm run dev               # 3. frontend on :3000
 ```
 
-Verify it's up: `curl http://localhost:8080/actuator/health` should
+Verify the backend: `curl http://localhost:8080/actuator/health` should
 return `200` with `"status":"UP"` and a `db` component also `UP`.
+
+Then open <http://localhost:3000>, which lands on the sign-in page — use
+**Create one** to register, which signs you in and redirects to the
+dashboard. The frontend talks to the backend across origins, which the
+backend allows via `cors.allowed-origins` (see
+[`docs/phases/phase-07-frontend.md`](docs/phases/phase-07-frontend.md));
+if that is ever misconfigured, every API call fails with a network error
+while the page itself still loads.
 
 ## Docs
 
@@ -54,6 +78,8 @@ return `200` with `"status":"UP"` and a `db` component also `UP`.
   projection design (living reference, kept current)
 - [`docs/websocket.md`](docs/websocket.md) — internal event hook +
   WebSocket real-time design (living reference, kept current)
+- [`frontend/README.md`](frontend/README.md) — running and configuring the
+  frontend (env vars, project layout)
 - [`docs/phases/`](docs/phases/) — a log of what each phase actually
   built, in order
 
@@ -74,7 +100,7 @@ put.
 | Phase 4 — Authentication & Order REST API ([doc](docs/phases/phase-04-authentication.md)) | ✅ Done |
 | Phase 5 — Redis Market-Data Projection ([doc](docs/phases/phase-05-redis-market-data.md)) | ✅ Done |
 | Phase 6 — WebSocket Real-Time Updates ([doc](docs/phases/phase-06-websocket.md)) | ✅ Done |
-| Phase 7 — Frontend | 🔜 Next |
+| Phase 7 — Frontend ([doc](docs/phases/phase-07-frontend.md)) | ✅ Done |
 | Phase 8 | ⬜ Not started |
 | Phase 9 | ⬜ Not started |
 | Phase 10 | ⬜ Not started |
