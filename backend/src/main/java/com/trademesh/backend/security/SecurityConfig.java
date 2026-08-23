@@ -56,7 +56,17 @@ public class SecurityConfig {
                         // fallback transports genuinely need more than GET (POST for
                         // polling, OPTIONS for preflight), unlike /api/market/** below,
                         // so this isn't scoped to one HTTP method.
-                        .requestMatchers("/api/auth/**", "/actuator/health", "/ws/**").permitAll()
+                        // /error is the container's ERROR-dispatch target for any
+                        // exception no @ExceptionHandler claimed, and for the statuses
+                        // Spring MVC sets without throwing to a controller at all (405,
+                        // 415, 404). It must be permitted, not authenticated: that
+                        // dispatch is a fresh request, and OncePerRequestFilter skips
+                        // itself on it by default (shouldNotFilterErrorDispatch), so
+                        // JwtAuthenticationFilter never runs and the request arrives
+                        // unauthenticated no matter who the caller is. Securing it meant
+                        // every such error -- including on permitAll routes like
+                        // /api/auth/login -- came back 401 instead of its real status.
+                        .requestMatchers("/api/auth/**", "/actuator/health", "/ws/**", "/error").permitAll()
                         // Market data is a read-only, price-level-aggregated view with no
                         // per-order/per-user detail -- public in a real exchange, and the
                         // dashboard (§14/Phase 7) is expected to show the book before login.

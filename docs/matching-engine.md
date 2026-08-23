@@ -59,11 +59,72 @@ of which `TreeMap`/`Deque` position an order sits at.
   entirely if it's now empty. Returns `false` for an unknown id or an
   order that's no longer resting (already `FILLED` or `CANCELLED`).
 - **Not thread-safe.** No synchronization inside `OrderBook`. Concurrent
-  access is the caller's responsibility — as of Phase 3 that's
-  `TradeService`, which serializes access implicitly by running inside a
-  single `@Transactional` method per request; there's still no explicit
-  locking if that assumption ever stops holding (e.g. concurrent requests
-  for the same symbol).
+  access is the caller's responsibility, and **as of Phase 8 that
+  responsibility is known to be unmet** — `TradeService` takes no lock, and
+  a transaction boundary does not serialize in-memory access. See the
+  known limitation below, which supersedes the earlier assumption that
+  running inside one transactional method per request was sufficient.
+
+## Known limitation: concurrent submissions corrupt the book (Phase 8)
+
+Two simultaneous `POST /api/orders` for the same symbol run
+`OrderBook.submitOrder` on the same book instance from two Tomcat worker
+threads at once. Nothing prevents this: `TradeService` holds no lock, and
+the surrounding database transaction protects only the database — the
+in-memory book is not part of it. `EngineOrder.reduceRemainingQuantity` is
+a plain read-modify-write on a mutable field, and the book's `TreeMap`,
+`ArrayDeque`, and `restingOrders` `HashMap` are all unsynchronized.
+
+This was measured in Phase 8, not inferred.
+`backend/src/test/java/com/trademesh/backend/concurrency/ConcurrentOrderSubmissionTest.java`
+fires 32 concurrent submissions and asserts conservation invariants that
+hold under any correct interleaving. It fails reliably — twice on first
+authoring, with **different magnitudes each time**, which is what confirms
+a race rather than an off-by-one:
+
+| Probe | Run 1 | Run 2 |
+|---|---|---|
+| 32 buys of 1 vs. a resting sell of 32 | 32 traded, only 30 consumed | 32 traded, only 29 consumed |
+| 32 resting sells at one price | book held 30 of 32 | book held 29 of 32 |
+
+Two distinct failure modes, both silent — every request returned `201`,
+and no exception was thrown or logged in either run:
+
+1. **Phantom liquidity (lost update).** More quantity was traded away than
+   the resting order gave up. 32 units were sold and durably persisted as
+   trades, while the order that supplied them still showed 2–3 units
+   remaining. Those units do not exist but are still offered, and will be
+   sold *again* to the next taker. This is the more serious of the two: the
+   over-sale is already committed to Postgres by the time anything could
+   notice.
+2. **Lost resting orders.** With no matching involved at all, orders
+   accepted and persisted as `OPEN` never made it into the book. Postgres
+   and the engine diverge immediately: those orders can never match, and
+   cancelling one returns `409` because the book has no record of it.
+
+Note this is a *different* mechanism from the Phase 3 divergence
+limitation in `docs/architecture.md`, though the symptom overlaps. Phase 3
+is about a failed database write leaving the book ahead of Postgres, and
+heals on the next restart because Postgres is the source of truth. Here
+the book is *ahead of nothing* — the corrupt state is what got persisted,
+so the startup reload faithfully restores the wrong numbers.
+
+The test is `@Disabled` so the suite stays green, and is kept as
+executable evidence rather than deleted; run it with
+`mvn test -Dtest=ConcurrentOrderSubmissionTest`. It is the acceptance
+criterion for the fix and should be re-enabled as part of it.
+
+**A fix is deliberately not attempted here.** The obvious reflex — marking
+`submitOrder` `synchronized` — would serialize every symbol against every
+other, since the lock would be per-`OrderBook` but the contention it needs
+to remove is per-symbol. The plausible designs are a per-symbol lock held
+across the match *and* the persistence that follows it (which lengthens
+the critical section to include database I/O), or a single-writer queue
+per book with submissions handed off to it. Choosing between those is a
+design decision with real throughput consequences and belongs in its own
+pass. **This should be resolved before the engine handles genuinely
+concurrent traffic** — including before any deployment that exposes it to
+more than one caller at a time.
 
 ## `MatchResult`
 

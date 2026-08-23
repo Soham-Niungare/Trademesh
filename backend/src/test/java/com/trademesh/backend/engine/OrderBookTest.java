@@ -13,6 +13,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class OrderBookTest {
@@ -277,5 +278,90 @@ class OrderBookTest {
 
         assertTrue(book.cancelOrder(sell.getId()));
         assertFalse(book.cancelOrder(sell.getId()));
+    }
+
+    // --- Guards. Each of these throws are the book's own invariants; they were
+    // previously unexercised, so a regression that silently dropped one would not
+    // have failed any test.
+
+    private static EngineOrder limitForSymbol(String symbol, OrderSide side, String price, String quantity) {
+        return new EngineOrder(UUID.randomUUID(), UUID.randomUUID(), symbol, side, OrderType.LIMIT,
+                new BigDecimal(price), new BigDecimal(quantity));
+    }
+
+    private static EngineOrder restorable(OrderType type, String price, String quantity,
+                                           String remainingQuantity, OrderStatus status) {
+        return new EngineOrder(UUID.randomUUID(), UUID.randomUUID(), SYMBOL, OrderSide.SELL, type,
+                price == null ? null : new BigDecimal(price), new BigDecimal(quantity),
+                new BigDecimal(remainingQuantity), status);
+    }
+
+    @Test
+    @DisplayName("submitting an order for a different symbol is rejected rather than silently mismatched")
+    void submitOrder_forDifferentSymbol_throws() {
+        EngineOrder wrongSymbol = limitForSymbol("MSFT", OrderSide.BUY, "100", "10");
+
+        IllegalArgumentException thrown =
+                assertThrows(IllegalArgumentException.class, () -> book.submitOrder(wrongSymbol));
+
+        assertTrue(thrown.getMessage().contains("MSFT"), thrown.getMessage());
+        assertTrue(thrown.getMessage().contains(SYMBOL), thrown.getMessage());
+    }
+
+    @Test
+    @DisplayName("restoreRestingOrder rejects an order belonging to another symbol's book")
+    void restoreRestingOrder_forDifferentSymbol_throws() {
+        EngineOrder wrongSymbol = limitForSymbol("MSFT", OrderSide.SELL, "100", "10");
+
+        assertThrows(IllegalArgumentException.class, () -> book.restoreRestingOrder(wrongSymbol));
+    }
+
+    /**
+     * The specific case behind the Phase 5 warmup bug: a MARKET order persisted as
+     * OPEN (the engine's documented meaning of "nothing filled") is not a resting
+     * order and must not be restorable.
+     */
+    @Test
+    @DisplayName("restoreRestingOrder rejects a MARKET order")
+    void restoreRestingOrder_marketOrder_throws() {
+        EngineOrder marketOrder = restorable(OrderType.MARKET, null, "10", "10", OrderStatus.OPEN);
+
+        IllegalArgumentException thrown =
+                assertThrows(IllegalArgumentException.class, () -> book.restoreRestingOrder(marketOrder));
+
+        assertEquals("Only LIMIT orders can rest in the book", thrown.getMessage());
+    }
+
+    @Test
+    @DisplayName("restoreRestingOrder rejects an order with nothing left to fill")
+    void restoreRestingOrder_zeroRemainingQuantity_throws() {
+        EngineOrder nothingLeft = restorable(OrderType.LIMIT, "100", "10", "0", OrderStatus.OPEN);
+
+        IllegalArgumentException thrown =
+                assertThrows(IllegalArgumentException.class, () -> book.restoreRestingOrder(nothingLeft));
+
+        assertEquals("Cannot restore an order with no remaining quantity", thrown.getMessage());
+    }
+
+    @Test
+    @DisplayName("restoreRestingOrder rejects terminal statuses, which never rest")
+    void restoreRestingOrder_terminalStatus_throws() {
+        EngineOrder filled = restorable(OrderType.LIMIT, "100", "10", "10", OrderStatus.FILLED);
+        EngineOrder cancelled = restorable(OrderType.LIMIT, "100", "10", "10", OrderStatus.CANCELLED);
+
+        assertThrows(IllegalArgumentException.class, () -> book.restoreRestingOrder(filled));
+        assertThrows(IllegalArgumentException.class, () -> book.restoreRestingOrder(cancelled));
+    }
+
+    @Test
+    @DisplayName("restoreRestingOrder accepts a genuinely resting order (guards aren't over-eager)")
+    void restoreRestingOrder_partiallyFilledLimitOrder_isAccepted() {
+        EngineOrder resting = restorable(OrderType.LIMIT, "100", "10", "4", OrderStatus.PARTIALLY_FILLED);
+
+        book.restoreRestingOrder(resting);
+
+        OrderBookSnapshot snapshot = book.getSnapshot();
+        assertEquals(1, snapshot.asks().size());
+        assertMoneyEquals("4", snapshot.asks().get(0).totalQuantity());
     }
 }

@@ -8,6 +8,7 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -30,6 +31,24 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ResponseEntity<ErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
         return respond(HttpStatus.BAD_REQUEST, "Invalid value for parameter '" + ex.getName() + "'");
+    }
+
+    /**
+     * A request body Jackson could not read at all: malformed JSON, a value of the
+     * wrong JSON type, or a string that isn't one of an enum's constants. Before
+     * this handler existed, these had no {@code @ExceptionHandler} and so escaped
+     * the dispatcher entirely, forwarding to {@code /error} -- which was itself a
+     * secured route, turning every one of them into a misleading {@code 401}. See
+     * {@code SecurityConfig}, which permits {@code /error} for the same reason.
+     *
+     * <p>The message is deliberately generic rather than {@code ex.getMessage()}:
+     * Jackson's own text names the failing Java class and, for enums, lists their
+     * constants -- internal detail this API doesn't otherwise expose. Same
+     * reasoning as the duplicate-registration handler below.
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorResponse> handleUnreadableBody(HttpMessageNotReadableException ex) {
+        return respond(HttpStatus.BAD_REQUEST, "Malformed or unreadable request body");
     }
 
     /** Covers domain-invariant violations such as EngineOrder rejecting a LIMIT order with no price. */

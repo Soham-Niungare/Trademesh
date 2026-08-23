@@ -189,6 +189,76 @@ class OrderControllerTest {
                 .andExpect(status().isConflict());
     }
 
+    /**
+     * Regression: price carried no validation annotation at all (quantity had
+     * {@code @NotNull @Positive}, price had nothing), and nothing downstream
+     * checked its sign either -- EngineOrder only rejects a null price on a LIMIT
+     * order, and OrderBook.submitOrder only checks the symbol. A negative-priced
+     * LIMIT order was accepted with 201 and rested in the book, corrupting the
+     * depth ladder and the best bid/ask derived from it.
+     */
+    @Test
+    void submitOrder_negativePrice_returns400AndPersistsNothing() throws Exception {
+        String token = registerAndLogin("neg-price-" + UUID.randomUUID());
+        String body = """
+                {"symbol":"%s","side":"BUY","type":"LIMIT","price":-100,"quantity":10}
+                """.formatted(uniqueSymbol());
+
+        mockMvc.perform(post("/api/orders")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsStringIgnoringCase("price")));
+
+        assertEquals(0, orderRepository.count(), "a rejected order must not reach the database");
+    }
+
+    /** Zero is non-positive too, and would have made a resting order fillable for nothing. */
+    @Test
+    void submitOrder_zeroPrice_returns400() throws Exception {
+        String token = registerAndLogin("zero-price-" + UUID.randomUUID());
+        String body = """
+                {"symbol":"%s","side":"SELL","type":"LIMIT","price":0,"quantity":10}
+                """.formatted(uniqueSymbol());
+
+        mockMvc.perform(post("/api/orders")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void submitOrder_validPositivePrice_stillAccepted() throws Exception {
+        String token = registerAndLogin("pos-price-" + UUID.randomUUID());
+
+        UUID orderId = submitOrder(token, uniqueSymbol(), "BUY", "LIMIT", "100.25", "10");
+
+        Order persisted = orderRepository.findById(orderId).orElseThrow();
+        assertEquals(0, new BigDecimal("100.25").compareTo(persisted.getPrice()));
+    }
+
+    /**
+     * The other half of the fix: {@code @Positive} treats null as valid, which is
+     * exactly what a MARKET order needs -- it legitimately carries no price. Guards
+     * against "fixing" the negative-price hole by making price mandatory.
+     */
+    @Test
+    void submitOrder_marketOrderWithNoPrice_stillAccepted() throws Exception {
+        String token = registerAndLogin("market-" + UUID.randomUUID());
+        String body = """
+                {"symbol":"%s","side":"BUY","type":"MARKET","quantity":10}
+                """.formatted(uniqueSymbol());
+
+        mockMvc.perform(post("/api/orders")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.order.type").value("MARKET"));
+    }
+
     @Test
     void endToEndFlow_registerLoginPlaceOrderGetOrderCancelOrder() throws Exception {
         String username = "e2e-" + UUID.randomUUID();

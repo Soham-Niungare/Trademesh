@@ -126,6 +126,32 @@ same pattern as the Postgres credentials.
 
 ## Known limitations
 
+### Concurrent order submissions corrupt the book (Phase 8)
+
+`OrderBook` is not thread-safe and `TradeService` takes no lock, so two
+simultaneous `POST /api/orders` for the same symbol run `submitOrder` on
+the same book from two request threads at once. A transaction boundary
+does not help: it protects the database, not an in-memory data structure.
+
+Measured, not inferred — see
+[`docs/matching-engine.md`](matching-engine.md#known-limitation-concurrent-submissions-corrupt-the-book-phase-8)
+for the full write-up and the numbers. Two silent failure modes: quantity
+traded away that the resting order never gave up (phantom liquidity that
+gets sold again), and accepted orders that never enter the book at all.
+Every request returns `201`; nothing is thrown or logged.
+
+Distinct from the Phase 3 limitation below, despite the overlapping
+symptom: there, a failed write leaves the book ahead of Postgres and a
+restart heals it. Here the corrupted state is what got persisted, so the
+startup reload faithfully restores the wrong numbers.
+
+`ConcurrentOrderSubmissionTest` demonstrates both and is `@Disabled` — the
+acceptance criterion for a fix that has not been attempted, because the
+options (a per-symbol lock spanning match *and* persistence, or a
+single-writer queue per book) differ materially in throughput and need
+their own design pass. **This should be resolved before deployment exposes
+the engine to more than one concurrent caller.**
+
 ### The in-memory order book and Postgres can diverge if persistence fails mid-request (Phase 3)
 
 `TradeService.submitOrder` (and `cancelOrder`) do two things per call:
