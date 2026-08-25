@@ -1,0 +1,131 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: trademesh
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/part-of: trademesh
+spec:
+  # ===========================================================================
+  # ||                                                                       ||
+  # ||   DO NOT INCREASE THIS. replicas MUST stay 1.                         ||
+  # ||                                                                       ||
+  # ===========================================================================
+  #
+  # This is a correctness constraint, not a capacity choice, and scaling it
+  # will silently corrupt trading state rather than fail loudly.
+  #
+  # The matching engine's OrderBook is an IN-MEMORY, IN-PROCESS data structure
+  # and is the authoritative source of what is currently resting in the book.
+  # It is not shared between pods and there is no coordination layer. Two pods
+  # would each hold their own divergent copy of the book, match incoming orders
+  # against different state, and write conflicting results to the same database
+  # -- selling the same liquidity twice, with no error surfaced to anyone.
+  #
+  # Worse, the engine is not yet safe even WITHIN a single pod: concurrent
+  # requests to one instance already lose updates. That is a measured, open
+  # defect, not a theoretical one -- see the "Known limitation: concurrent
+  # submissions corrupt the book" section of docs/matching-engine.md, and the
+  # (deliberately @Disabled) ConcurrentOrderSubmissionTest that demonstrates it.
+  #
+  # Before this can ever run with replicas > 1, BOTH must be true:
+  #   1. Intra-pod concurrency is fixed (per-symbol locking or a single-writer
+  #      queue per book), and ConcurrentOrderSubmissionTest passes with it
+  #      re-enabled.
+  #   2. A cross-pod ownership design exists -- sharding symbols to instances,
+  #      or leader election so exactly one pod owns matching at a time.
+  #
+  # Until then, this app scales vertically only: raise the resource limits
+  # below, never the replica count.
+  replicas: 1
+  strategy:
+    # Recreate, not RollingUpdate: a rolling update briefly runs two backend
+    # pods at once, which is precisely the two-books-diverging scenario above.
+    # This trades a few seconds of downtime on deploy for correctness.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: backend
+      app.kubernetes.io/part-of: trademesh
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: backend
+        app.kubernetes.io/part-of: trademesh
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        # Must match the uid of the user in backend/Dockerfile. That Dockerfile
+        # uses `USER trademesh` (a name), and Kubernetes cannot resolve a name
+        # to verify it is non-root -- it would reject the pod with "image has
+        # non-numeric user". Stating the uid explicitly here is what makes
+        # runAsNonRoot enforceable. The tidier long-term fix is `USER 100` in
+        # the Dockerfile, after which this line can be dropped.
+        runAsUser: 100
+      containers:
+        - name: backend
+          # PLACEHOLDER -- replace <DOCKERHUB_USERNAME> before applying.
+          image: <DOCKERHUB_USERNAME>/trademesh-backend:v1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            # Non-secret values, versioned alongside these manifests.
+            - configMapRef:
+                name: backend-config
+            # Secret values, created OUT-OF-BAND -- deliberately not in this
+            # directory, so no credential is ever committed to the GitOps repo.
+            # It must exist before this Deployment starts, and must contain
+            # exactly these keys (they become env vars verbatim):
+            #
+            #   DB_URL       jdbc:postgresql://postgres:5432/trademesh
+            #   DB_USERNAME  trademesh
+            #   DB_PASSWORD  <chosen password>
+            #   JWT_SECRET   <>= 32 bytes, required for HS256>
+            #
+            # postgres-deployment.yaml reads DB_USERNAME/DB_PASSWORD from this
+            # same Secret, so the database and the app cannot drift apart.
+            - secretRef:
+                name: trademesh-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+          resources:
+            # Sized for a portfolio workload, not production traffic. Note the
+            # JVM defaults its max heap to ~25% of the memory limit (Java 21 is
+            # container-aware), so a 1Gi limit yields roughly a 256Mi heap. If
+            # that proves tight, prefer raising the limit or setting
+            # JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=75 over adding replicas.
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          # /actuator/health is the only actuator endpoint this app exposes
+          # (see application.yml) and returns 503 when any component -- notably
+          # the datasource -- is DOWN, so plain HTTP status checks are enough.
+          startupProbe:
+            # Absorbs JVM + Spring context startup so a slow boot is never
+            # mistaken for a liveness failure and restart-looped. Allows up to
+            # 150s (30 x 5s) before liveness begins.
+            httpGet:
+              path: /actuator/health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3

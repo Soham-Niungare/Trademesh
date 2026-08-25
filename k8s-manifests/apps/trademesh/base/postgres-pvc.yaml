@@ -1,0 +1,50 @@
+# Postgres storage, via this platform's static NFS provisioning pattern:
+# a PersistentVolume is created by hand and this claim binds to it. There is no
+# dynamic provisioner involved.
+#
+# =============================================================================
+# THIS CLAIM WILL STAY Pending UNTIL A MATCHING PersistentVolume EXISTS.
+# The PV is cluster-scoped, so it does not belong in this per-app directory and
+# is not applied by whatever syncs this folder -- create it separately, first.
+#
+# Template (fill in the two placeholders, they must match the ones below):
+#
+#   apiVersion: v1
+#   kind: PersistentVolume
+#   metadata:
+#     name: trademesh-postgres-pv
+#   spec:
+#     capacity:
+#       storage: 5Gi
+#     accessModes:
+#       - ReadWriteOnce
+#     persistentVolumeReclaimPolicy: Retain   # never auto-delete trade data
+#     storageClassName: ""                    # must equal the claim's, below
+#     nfs:
+#       server: NFS_SERVER_PLACEHOLDER
+#       path: /srv/nfs/PLACEHOLDER/trademesh-postgres
+#
+# The export directory must exist on the NFS server and be writable by the uid
+# Postgres runs as before the pod starts; the official image will not create it.
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: trademesh
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: trademesh
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  # Empty string, not omitted. Omitting it lets the cluster's default
+  # StorageClass dynamically provision something else entirely and ignore the
+  # hand-made NFS volume; "" explicitly opts out of dynamic provisioning.
+  storageClassName: ""
+  # Binds to that specific PV rather than whichever unbound volume happens to
+  # fit, so this claim cannot accidentally adopt another app's storage.
+  volumeName: trademesh-postgres-pv

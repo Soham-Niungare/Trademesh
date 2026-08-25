@@ -1,0 +1,68 @@
+# Local verification of the two application images, layered on top of the
+# infrastructure in docker-compose.yml.
+#
+# Kept as a SEPARATE file rather than added to docker-compose.yml on purpose:
+# the base file is the documented developer workflow ("docker compose up -d"
+# starts Postgres and Redis, then you run the backend and frontend from source
+# -- see README.md and frontend/README.md). Folding the app containers into it
+# would silently change what that documented command does. Both files merge
+# into one Compose project, so these services join the same default network and
+# can reach `postgres` and `redis` by service name.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.apps.yml up -d --build
+#   docker compose -f docker-compose.yml -f docker-compose.apps.yml down
+#
+# This is a verification harness, not a deployment artifact. Kubernetes
+# manifests are Stage 2 and deliberately not in this session.
+
+services:
+  backend:
+    build:
+      context: ./backend
+    image: trademesh-backend:local
+    container_name: trademesh-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # Every value here is supplied from outside the image -- nothing is baked
+      # into the Dockerfile. This is also the shape Kubernetes will use: plain
+      # env vars, with the password coming from a Secret rather than a literal.
+      #
+      # Deliberately DB_* (application.yml's own placeholder names) rather than
+      # Spring's SPRING_DATASOURCE_* relaxed-binding equivalents. Both work, but
+      # SPRING_DATASOURCE_URL overrides the property outright and never
+      # evaluates the ${DB_URL:...} placeholder -- so using it here would leave
+      # the externalization untested, and a typo in a placeholder name would
+      # pass unnoticed.
+      DB_URL: jdbc:postgresql://postgres:5432/trademesh
+      DB_USERNAME: trademesh
+      DB_PASSWORD: trademesh
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      # Local-only value. Must come from a Secret in any real environment.
+      JWT_SECRET: local-verification-only-secret-at-least-32-bytes-long-hs256
+      # The browser's origin, not the frontend container's hostname.
+      CORS_ALLOWED_ORIGINS: http://localhost:3000
+    ports:
+      - "8080:8080"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Baked into the client bundle at build time -- see the long note in
+        # frontend/Dockerfile. These are the addresses the BROWSER uses, so
+        # they are localhost (the published backend port), never `backend:8080`.
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:8080
+        NEXT_PUBLIC_WS_URL: http://localhost:8080/ws
+        NEXT_PUBLIC_SYMBOLS: AAPL,MSFT,GOOG
+    image: trademesh-frontend:local
+    container_name: trademesh-frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "3000:3000"

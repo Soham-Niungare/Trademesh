@@ -1,0 +1,21 @@
+# ClusterIP, and deliberately never routed through the Ingress. The database is
+# reachable only from inside the namespace -- the backend resolves it as
+# `postgres:5432`, which is exactly the host in the Secret's DB_URL.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: trademesh
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: trademesh
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: trademesh
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+      protocol: TCP

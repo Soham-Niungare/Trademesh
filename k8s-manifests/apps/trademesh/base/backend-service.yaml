@@ -1,0 +1,21 @@
+# ClusterIP: the backend is reached by the browser only through the Ingress
+# (paths /api and /ws on trademesh.k8s.local), never directly. Nothing outside
+# the cluster resolves this name.
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: trademesh
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/part-of: trademesh
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/part-of: trademesh
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP

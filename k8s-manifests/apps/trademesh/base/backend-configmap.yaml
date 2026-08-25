@@ -1,0 +1,37 @@
+# Non-secret backend configuration.
+#
+# Deviation from the shopping-app reference layout, which has no
+# *-configmap.yaml -- that app may simply inline env vars in its Deployment.
+# Split out here because these values are the ones most likely to differ per
+# environment (a staging overlay would patch this file alone), and keeping them
+# out of the Deployment makes the secret/non-secret boundary obvious at a glance.
+#
+# Everything genuinely sensitive lives in the `trademesh-secrets` Secret, which
+# is created out-of-band and is NOT part of this directory. See
+# backend-deployment.yaml for the full list of keys it must contain.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: trademesh
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/part-of: trademesh
+data:
+  # Cluster-internal DNS names of the Service objects in this namespace.
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+
+  # Origins allowed to call /api/** from a browser.
+  #
+  # With the Ingress in frontend-ingress.yaml the frontend and the API are
+  # served from the SAME origin (http://trademesh.k8s.local, paths / and /api),
+  # so browsers will not actually issue cross-origin requests in normal use.
+  # This is set correctly anyway so that preflights succeed if anything ever
+  # reaches the API from a different origin, and so the value is never a
+  # stale localhost left over from local development.
+  CORS_ALLOWED_ORIGINS: "http://trademesh.k8s.local"
+
+  # Not a secret -- it is a duration, not a credential. The signing key itself
+  # (JWT_SECRET) is in the Secret.
+  JWT_EXPIRATION_MS: "3600000"

@@ -54,6 +54,39 @@ components — it's a living document, not a phase log (see
   `WebSocketConfig` already declares rather than narrowing it. See the
   Phase 7 doc for why that second mapping is load-bearing.
 
+## Configuration
+
+One configuration file (`backend/src/main/resources/application.yml`) and **no
+Spring profiles**. Every environment-specific value is read from an environment
+variable with a local-dev default, on a single `${VAR:default}` convention —
+bare `SCREAMING_SNAKE` names, no `SPRING_` prefix:
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `DB_URL` | JDBC URL | `jdbc:postgresql://localhost:5432/trademesh` |
+| `DB_USERNAME` / `DB_PASSWORD` | Datasource credentials | `trademesh` / `trademesh` |
+| `REDIS_HOST` / `REDIS_PORT` | Market-data projection | `localhost` / `6379` |
+| `JWT_SECRET` | HS256 signing key | dev-only placeholder |
+| `JWT_EXPIRATION_MS` | Token lifetime | `3600000` |
+| `CORS_ALLOWED_ORIGINS` | Browser origins allowed on `/api/**` | `http://localhost:3000` |
+
+The defaults exist so a fresh checkout runs against the `docker-compose.yml`
+Postgres and Redis with nothing set. `JWT_SECRET` and `DB_PASSWORD` must come
+from a secret store in any real environment; the checked-in values are local
+credentials, not shared ones.
+
+A `docker` Spring profile previously remapped the Postgres and Redis hostnames
+and carried the same credentials inline. It was removed in Phase 9 once the
+datasource was externalized: everything it set is now reachable through the
+variables above, and keeping it would have meant an activated profile could
+silently take precedence over injected configuration. See
+`docs/phases/phase-09-deployment.md`.
+
+Note that Spring's relaxed binding still accepts `SPRING_DATASOURCE_URL` and
+friends. Those bypass the placeholders entirely rather than feeding them, so
+prefer the names above — a deployment manifest listing them documents what the
+application actually requires.
+
 ## Authentication
 
 Stateless JWT bearer auth, added in Phase 4 and expected to be the

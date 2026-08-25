@@ -11,9 +11,16 @@ spring:
         format_sql: true
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/trademesh
-    username: trademesh
-    password: trademesh
+    # Externalized on the same ${VAR:default} pattern as Redis, JWT and CORS
+    # below. The defaults reproduce the previously-hardcoded values exactly, so
+    # local dev against the docker-compose Postgres keeps working with no env
+    # vars set. DB_PASSWORD must come from a Secret in any real environment --
+    # the default here is the local compose credential, not a shared one.
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/trademesh}
+    username: ${DB_USERNAME:trademesh}
+    password: ${DB_PASSWORD:trademesh}
+    # Not externalized: the driver is a property of the dependency on the
+    # classpath, not of the environment the app runs in.
     driver-class-name: org.postgresql.Driver
 
   data:
@@ -48,18 +55,3 @@ cors:
   # the local Next.js dev server; override with CORS_ALLOWED_ORIGINS (comma-separated)
   # to point at a deployed frontend without rebuilding.
   allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
-
----
-spring:
-  config:
-    activate:
-      on-profile: docker
-
-  datasource:
-    url: jdbc:postgresql://postgres:5432/trademesh
-    username: trademesh
-    password: trademesh
-
-  data:
-    redis:
-      host: redis

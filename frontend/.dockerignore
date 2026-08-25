@@ -1,0 +1,36 @@
+# Dependencies and build output -- both are produced inside the image. Copying
+# a host node_modules in would also risk platform-mismatched native binaries.
+node_modules
+.next
+out
+build
+
+# VCS
+.git
+.gitignore
+
+# Local env files. This exclusion is load-bearing, not just tidiness: the
+# NEXT_PUBLIC_* values are baked into the client bundle at build time, and a
+# .env.local present in the build context could supply them instead of the
+# build ARGs -- silently producing an image pointing at localhost regardless of
+# what was passed to `docker build`. Keeping them out of the context removes
+# the ambiguity entirely.
+.env
+.env.*
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Not needed inside the image
+Dockerfile
+.dockerignore
+README.md
+coverage

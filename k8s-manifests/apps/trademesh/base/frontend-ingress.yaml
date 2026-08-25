@@ -1,0 +1,56 @@
+# Single host, three paths, two backends. The frontend and the API deliberately
+# share one origin (http://trademesh.k8s.local): the browser then makes
+# same-origin requests, so CORS never enters the picture in normal use, and the
+# baked-in NEXT_PUBLIC_API_BASE_URL is just the site's own address.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: frontend
+  namespace: trademesh
+  labels:
+    app.kubernetes.io/name: frontend
+    app.kubernetes.io/part-of: trademesh
+  annotations:
+    # The /ws path carries SockJS/STOMP connections that stay open and can sit
+    # idle between market events. ingress-nginx upgrades WebSocket connections
+    # automatically, but its default 60s proxy read timeout would still cut an
+    # idle one -- the client would reconnect every minute. These raise it to an
+    # hour for this Ingress only.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  # ingressClassName rather than the older
+  # `kubernetes.io/ingress.class` annotation: the annotation has been
+  # deprecated since Kubernetes 1.18 and ingress-nginx honours this field on
+  # every currently-supported release. If this platform runs an ingress-nginx
+  # older than ~0.40 (unlikely), swap this line for that annotation.
+  ingressClassName: nginx
+  rules:
+    - host: trademesh.k8s.local
+      http:
+        paths:
+          # More specific prefixes first for readability. ingress-nginx matches
+          # the longest prefix regardless of ordering, so /api and /ws win over
+          # / on their own merits -- but relying on that silently is worse than
+          # writing it in an obvious order.
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8080
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8080
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 3000

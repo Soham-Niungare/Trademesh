@@ -1,0 +1,12 @@
+# Deviation from the shopping-app reference layout, which has no namespace.yaml.
+# Included deliberately: every other manifest here hard-codes
+# `namespace: trademesh`, so without this the whole app fails to apply against a
+# fresh cluster with an error that points at the Deployment rather than at the
+# missing namespace. If the platform creates namespaces out-of-band, delete this
+# file -- nothing else references it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: trademesh
+  labels:
+    app.kubernetes.io/part-of: trademesh

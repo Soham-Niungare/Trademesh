@@ -30,7 +30,8 @@ TradeMesh/
 │       ├── phase-05-redis-market-data.md
 │       ├── phase-06-websocket.md
 │       ├── phase-07-frontend.md
-│       └── phase-08-testing-hardening.md
+│       ├── phase-08-testing-hardening.md
+│       └── phase-09-deployment.md
 ├── docker-compose.yml
 ├── README.md
 └── .gitignore
@@ -103,5 +104,5 @@ put.
 | Phase 6 — WebSocket Real-Time Updates ([doc](docs/phases/phase-06-websocket.md)) | ✅ Done |
 | Phase 7 — Frontend ([doc](docs/phases/phase-07-frontend.md)) | ✅ Done |
 | Phase 8 — Testing & Hardening ([doc](docs/phases/phase-08-testing-hardening.md)) | ✅ Done |
-| Phase 9 | ⬜ Not started |
+| Phase 9 — Deployment ([doc](docs/phases/phase-09-deployment.md)) | 🚧 Stages 1–2 of 3 done (images + manifests) |
 | Phase 10 | ⬜ Not started |

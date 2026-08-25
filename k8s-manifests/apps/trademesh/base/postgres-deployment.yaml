@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: trademesh
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: trademesh
+spec:
+  # Single instance, and a plain Deployment rather than a StatefulSet --
+  # matching the reference app's mongodb-deployment.yaml. A StatefulSet earns
+  # its keep with stable per-replica identity and ordered rollout, neither of
+  # which applies to one pod backed by one pre-made PV.
+  #
+  # Not scalable: replicas > 1 would attach several Postgres processes to the
+  # same ReadWriteOnce volume and corrupt the data directory. Real HA means
+  # replication (or an operator), not a higher number here.
+  replicas: 1
+  strategy:
+    # Recreate, not RollingUpdate: a rolling update would start the new pod
+    # while the old one still holds the volume. With ReadWriteOnce the new pod
+    # simply fails to attach and the rollout wedges.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+      app.kubernetes.io/part-of: trademesh
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres
+        app.kubernetes.io/part-of: trademesh
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            # Credentials come from the same out-of-band Secret the backend
+            # uses, rather than a second copy here. One source of truth: the
+            # database and the application literally cannot disagree about the
+            # password, and no credential appears in this repository.
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: trademesh-secrets
+                  key: DB_USERNAME
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: trademesh-secrets
+                  key: DB_PASSWORD
+            # Must match the database name in the Secret's DB_URL
+            # (jdbc:postgresql://postgres:5432/trademesh). Not a secret, so it
+            # is stated plainly rather than hidden.
+            - name: POSTGRES_DB
+              value: trademesh
+            # Point the data directory at a SUBDIRECTORY of the mount, not the
+            # mount root. Mounting a volume at /var/lib/postgresql/data leaves
+            # the root non-empty (lost+found on many filesystems, NFS metadata
+            # here) and initdb refuses to initialise into a non-empty
+            # directory. This is the standard fix and matters more on NFS.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+          # pg_isready checks the server actually answers, which a TCP socket
+          # probe would not distinguish from "port open, still recovering".
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: postgres-pvc

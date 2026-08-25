@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: trademesh
+  labels:
+    app.kubernetes.io/name: frontend
+    app.kubernetes.io/part-of: trademesh
+spec:
+  # Safe to scale, unlike the backend: this pod serves pre-built static assets
+  # and server-rendered pages, holds no session state (the JWT lives in the
+  # browser's localStorage), and talks to nothing that needs coordination.
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: frontend
+      app.kubernetes.io/part-of: trademesh
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: frontend
+        app.kubernetes.io/part-of: trademesh
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        # Matches `USER nextjs` (uid 100) in frontend/Dockerfile -- see the
+        # equivalent note in backend-deployment.yaml for why the uid is stated
+        # numerically here.
+        runAsUser: 100
+      containers:
+        - name: frontend
+          # =================================================================
+          # PLACEHOLDER -- replace <DOCKERHUB_USERNAME> before applying.
+          #
+          # AND NOTE: this image must be BUILT for this environment. The
+          # frontend's NEXT_PUBLIC_* values are compiled into the JavaScript
+          # bundle at image-build time, not read at runtime -- setting them as
+          # env vars on this container has no effect at all.
+          #
+          # An image built with the local defaults points the browser at
+          # http://localhost:8080 and every API call from this deployment will
+          # fail. Build the :v1 image with:
+          #
+          #   docker build \
+          #     --build-arg NEXT_PUBLIC_API_BASE_URL=http://trademesh.k8s.local \
+          #     --build-arg NEXT_PUBLIC_WS_URL=http://trademesh.k8s.local/ws \
+          #     -t <DOCKERHUB_USERNAME>/trademesh-frontend:v1 ./frontend
+          #
+          # Changing the hostname later means rebuilding and re-tagging the
+          # image, not editing this manifest.
+          # =================================================================
+          image: <DOCKERHUB_USERNAME>/trademesh-frontend:v1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+          securityContext:
+            allowPrivilegeEscalation: false
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          # /login is the same target the image's own HEALTHCHECK uses: a real
+          # rendered page, and one that does not depend on the backend being
+          # reachable -- so a backend outage degrades the app rather than
+          # taking the frontend pods down with it.
+          readinessProbe:
+            httpGet:
+              path: /login
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /login
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3

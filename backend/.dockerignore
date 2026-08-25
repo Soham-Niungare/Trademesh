@@ -1,0 +1,26 @@
+# Build output -- the image builds the jar itself in the build stage, so a
+# locally-built target/ would only bloat the context (and could smuggle a
+# stale jar in).
+target/
+
+# VCS
+.git
+.gitignore
+
+# IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.settings/
+.project
+.classpath
+
+# Logs
+*.log
+
+# Not needed inside the image
+Dockerfile
+.dockerignore
+README.md
