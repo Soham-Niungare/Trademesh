@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Client, IMessage, StompSubscription } from "@stomp/stompjs";
 
 import { marketApi, ApiError } from "@/lib/api";
-import { MAX_TRADES, WS_URL } from "@/lib/config";
+import { MAX_TRADES, getWsUrl } from "@/lib/config";
 import type {
   OrderBookResponse,
   OrderBookUpdatedMessage,
@@ -168,7 +168,7 @@ export function useMarketStream(
       client = new StompClient({
         // The backend endpoint is registered `.withSockJS()`, so the transport
         // must speak SockJS -- a raw WebSocket to /ws would not handshake.
-        webSocketFactory: () => new SockJS(WS_URL),
+        webSocketFactory: () => new SockJS(getWsUrl()),
         // Built-in reconnect: retry every 5s after a drop, indefinitely.
         reconnectDelay: 5000,
         // Detect a connection that has gone silent without a clean close.

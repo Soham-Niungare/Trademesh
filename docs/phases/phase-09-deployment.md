@@ -441,3 +441,254 @@ current. The removal is recorded here and in `architecture.md` instead.
 - The Phase 8 concurrency race, which remains unfixed and **should be resolved
   before any deployment exposes the engine to concurrent callers** — see
   `docs/matching-engine.md`
+
+---
+
+## Troubleshooting — baked-in API URL broke login in the cluster
+
+Recorded after the images were pushed and the Stage 2 manifests were applied by
+hand, which is later than the "Still out of scope" list above describes. The
+entry is kept as a log of what went wrong rather than folded silently into the
+sections it corrects.
+
+### Symptom
+
+Login and register both failed in the cluster with:
+
+```
+Could not reach the TradeMesh API at http://treadmesh.k8s.local/api
+```
+
+Nothing else looked wrong. Every pod was `Running`, and Argo CD reported the
+application `Synced` and `Healthy`.
+
+### Diagnosis
+
+The failing string was searched for at every layer that could have produced it:
+
+| Searched | Found |
+|---|---|
+| Frontend source (`src/`) | No |
+| `.env`, `.env.local`, `.env.example` | No |
+| `frontend/Dockerfile` | No |
+| Kubernetes manifests | No |
+| `.next/static` inside the running image | **Yes** |
+
+Present in the compiled bundle but absent from every input tracked in git
+leaves exactly one path in: it was supplied as a `--build-arg` during a manual
+`docker build`, typed on the command line and recorded nowhere.
+
+### Two defects in a single value
+
+The one hand-typed string was wrong twice over, which is why the failure looked
+like a networking problem rather than a typo:
+
+- **Transposed letters** — `treadmesh` instead of `trademesh`, which does not
+  resolve at all.
+- **A missing NodePort** — even spelled correctly, the Ingress is reached on a
+  NodePort in this cluster, so a bare host would not have worked either.
+
+Fixing only the spelling would have produced a second, quieter failure.
+
+### Root cause
+
+`NEXT_PUBLIC_*` values are **inlined at build time**. Next.js replaces every
+`process.env.NEXT_PUBLIC_X` reference with a string literal while compiling the
+client bundle, so by the time a container starts the value is already inside
+the JavaScript served to the browser.
+
+That makes an environment-specific hostname **part of the image's identity**.
+The image was not a deployable artifact carrying configuration; it was an
+artifact that had one environment's hostname compiled into it. Correcting the
+address was therefore impossible without rebuilding and re-pushing — no
+manifest edit, env var, or rollout could touch it.
+
+The deeper problem is that the only thing standing between a working deploy and
+a broken one was a string typed by hand at build time, with no schema, no
+validation, and no review.
+
+### Why nothing caught it
+
+Argo CD said `Healthy`, and Argo CD was not wrong — it was answering a
+different question than the one that mattered.
+
+`Healthy` means the pods are running and their probes pass:
+
+- the backend probes `/actuator/health`, which reports the backend's own view
+  of itself — database and Redis connectivity — and knows nothing about the
+  browser;
+- the frontend probe only checks that Next.js serves a page. It serves the
+  broken bundle perfectly well.
+
+**No probe exercises the browser → API path**, which is the path that was
+broken. Both probes are server-side and neither one loads the client bundle, so
+a completely unusable application reported green all the way through.
+
+The lesson generalizes past this bug: *Healthy is a claim about the pods, not a
+verification of the application.* Sync status and probe status confirm that
+what was declared is what is running; they say nothing about whether what is
+running works.
+
+### Fix (round one)
+
+The hostname was removed from the decision entirely rather than corrected:
+
+- **`frontend/Dockerfile` ARG defaults now carry same-origin values** —
+  `NEXT_PUBLIC_API_BASE_URL=/api` and `NEXT_PUBLIC_WS_URL=same-origin`. Both
+  are correct behind the single Ingress on `trademesh.k8s.local`, which already
+  routes `/api` and `/ws` to the backend and `/` to the frontend. The cluster
+  build passes **no build args at all**, so the image contains no hostname to
+  get wrong.
+
+  > **`/api` was wrong** and is corrected below in "Round two". It is left
+  > stated here as it shipped, because the way it was wrong is the point of
+  > the next section.
+- **`same-origin` is a sentinel, handled in `src/lib/config.ts`.** SockJS needs
+  an absolute URL, and the correct absolute URL is only knowable in the
+  browser, so `WS_URL` became `getWsUrl()` — a function that returns
+  `` `${window.location.origin}/ws` `` in same-origin mode. A function rather
+  than a const deliberately: `window` does not exist during App Router server
+  rendering, so a module-load-time read would break `npm run build`.
+- **Source defaults are unchanged** — still `http://localhost:8080`. `npm run
+  dev` with no `.env.local` behaves exactly as before; the cluster values live
+  in the Dockerfile, not in the source.
+- **`docker-compose.apps.yml` now overrides explicitly.** Compose has no shared
+  origin — frontend on 3000, backend on 8080 — so it passes the split-port
+  values as build args. The cluster does not override; Compose must.
+
+### Also fixed in the same change: the image-name typo
+
+The Docker Hub repository was `<user>/treadmesh-frontend`. Renamed to
+`<user>/trademesh-frontend` throughout this repository. Unrelated to the URL
+bug — same transposition, different string — but fixed now rather than later
+because **Stage 3 hardcodes the repository name into the Jenkins pipeline**,
+and a typo is far cheaper to correct before it is referenced from build
+automation than after.
+
+The GitOps repository is updated by hand and separately; nothing in this change
+touches it.
+
+### Round two — the fix introduced `/api/api/...`
+
+The same-origin change worked in the sense that mattered least: the image no
+longer carried a hostname. It still could not log anyone in.
+
+**Symptom.** Register and login now failed against the right host, with a
+different failure:
+
+```
+POST http://trademesh.k8s.local:<nodeport>/api/api/auth/register → 403
+```
+
+The doubled `/api` is the whole bug. Two things worth noting about how it
+presented:
+
+- **403, not 404.** Spring Security evaluates the filter chain against the
+  request path before routing. `/api/api/auth/register` matched no `permitAll`
+  rule — the `permitAll` is on `/api/auth/**` — so the chain rejected it as an
+  unauthenticated request to a protected path.
+- **Nothing in the backend logs.** The request was rejected pre-controller, so
+  no handler, no request mapping, and no application log line ever ran. An
+  empty log looked like "the request never arrived", which pointed the
+  investigation at the Ingress rather than at the URL.
+
+**Proof the backend was fine.** A direct POST from inside the cluster,
+bypassing the Ingress and the frontend entirely:
+
+```
+kubectl run curl --rm -it --image=curlimages/curl --restart=Never -- \
+  curl -s -o /dev/null -w '%{http_code}\n' \
+  -X POST http://backend:8080/api/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"probe","email":"probe@example.com","password":"probe12345"}'
+```
+
+`201`. The backend, its security config, and the `/api/auth/**` mapping were
+all correct. Everything left was the prefix the browser was sending.
+
+**Root cause: two layers each contributed `/api`.** The base URL and the call
+site were both written as if the other did not exist:
+
+| Layer | Value |
+|---|---|
+| `NEXT_PUBLIC_API_BASE_URL` (Dockerfile ARG) | `/api` |
+| `apiFetch` call site in `src/lib/api.ts` | `/api/auth/register` |
+| `` fetch(`${API_BASE_URL}${path}`) `` | `/api` + `/api/auth/register` |
+
+`API_BASE_URL` had always been an **origin** — `http://localhost:8080` — and
+every path in `api.ts` had always begun with `/api`. Round one changed the base
+from an origin to a path prefix without looking at what it was concatenated
+with. Locally the two never met, because the local base is an origin and the
+concatenation stays correct.
+
+**The empty-string trap.** The obvious fix — set the ARG to `""`, since an
+empty base is exactly what a relative URL needs — does not work. Next.js inlines
+`""` literally, and the existing expression
+
+```ts
+process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080"
+```
+
+treats it as falsy, so the cluster image would fall back to `localhost:8080`.
+That is the round-one failure again, in a form that leaves no wrong string in
+the Dockerfile to notice. The `same-origin` sentinel is used instead — a value
+the `||` cannot swallow — and `config.ts` maps it to `""` after the default has
+been applied:
+
+```ts
+const configuredApi =
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080";
+
+export const API_BASE_URL =
+  configuredApi === SAME_ORIGIN ? "" : trimTrailingSlash(configuredApi);
+```
+
+`ARG NEXT_PUBLIC_API_BASE_URL` is now `same-origin`, matching the WS var. Both
+sentinels mean the same thing and neither names a host.
+
+One more consequence, small but user-visible: the network-error message in
+`api.ts` interpolated `API_BASE_URL`, which in same-origin mode is `""` — it
+would have read *"Could not reach the TradeMesh API at ."* It now falls back to
+`window.location.origin`, which is the origin the request actually went to.
+
+**The lesson.** *When a fix changes a URL prefix, audit the call sites, not
+just the constant.* Round one reviewed `config.ts` closely and never opened
+`api.ts`. The constant's contract — "this is an origin, and the paths carry
+`/api`" — was real, load-bearing, and written down nowhere; it survived only as
+long as nobody changed one side of it. Both sides now say so explicitly, in
+`config.ts`, the Dockerfile, `.env.example`, and `frontend/README.md`.
+
+The call sites were audited after this round rather than assumed. All seven
+paths passed to `apiFetch` begin with `/api`, `apiFetch` is module-private so
+there are no callers outside `api.ts`, and the single `fetch(` in the codebase
+is the one inside it. `getWsUrl()` resolves to `<origin>/ws`, matching the
+backend's `registry.addEndpoint("/ws")` and the Ingress's `/ws` prefix rule.
+
+### Prevention
+
+After any frontend image build, grep the compiled bundle for hostnames before
+pushing:
+
+```
+docker run --rm --entrypoint sh <image> \
+  -c 'grep -rEo "https?://[^\"]+" .next/static | sort -u'
+```
+
+Anything environment-specific in that output is a value that has been frozen
+into the image. For a same-origin build the correct result is that no
+deployment hostname appears at all.
+
+That check catches round one but **not** round two — a doubled path prefix
+contains no hostname and passes it cleanly. The second check is to exercise one
+real request end-to-end through the Ingress, from outside the cluster, before
+calling a deploy good:
+
+```
+curl -s -o /dev/null -w '%{http_code} %{url_effective}\n' \
+  -X POST http://trademesh.k8s.local:<nodeport>/api/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"probe","email":"probe@example.com","password":"probe12345"}'
+```
+
+That is the browser → Ingress → backend path no readiness probe covers, and it
+is the one both rounds of this incident broke.

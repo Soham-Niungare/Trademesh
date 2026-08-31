@@ -21,24 +21,47 @@ COPY . .
 # setting a different NEXT_PUBLIC_* env var on a running container has no
 # effect whatsoever. Changing any of them requires rebuilding the image.
 #
-# They must also be addresses reachable from THE BROWSER, not from inside the
-# Docker network. The browser calls the backend directly (this app has no
-# server-side proxy), so `http://backend:8080` would resolve only inside
-# Compose and break every request from a real user. Use the address the user's
-# browser will use -- http://localhost:8080 locally, the public API URL in a
-# deployed environment.
+# Whatever is set here must also be resolvable from THE BROWSER, not from
+# inside the Docker network. The browser calls the backend directly (this app
+# has no server-side proxy), so `http://backend:8080` would resolve only inside
+# Compose and break every request from a real user.
 #
-# Build with e.g.:
+# THE DEFAULTS BELOW CONTAIN NO HOSTNAME, ON PURPOSE.
+#
+# They target any single-origin deployment -- one where the same host serves
+# both this app and the API. That is exactly the Kubernetes setup: a single
+# Ingress on trademesh.k8s.local routes /api and /ws to the backend and / to
+# the frontend. The `same-origin` sentinel tells the app to build its URLs
+# against whatever origin served the page, so the cluster build passes NO build
+# args and the resulting image contains no environment hostname at all. The
+# same image is valid behind any other single origin.
+#
+# `same-origin` and not an empty string, for either var. An empty build arg is
+# inlined as "" and swallowed by the `||` default in src/lib/config.ts, which
+# would pin the cluster image to localhost:8080 -- a silent failure rather than
+# an obvious one.
+#
+# NEXT_PUBLIC_API_BASE_URL names the ORIGIN ONLY, never a path prefix. The call
+# sites in src/lib/api.ts already begin their paths with /api, so setting this
+# to `/api` produces /api/api/auth/register -- which Spring Security rejects
+# with 403 before any controller sees it. That was the second round of this
+# same incident; see docs/phases/phase-09-deployment.md.
+#
+# Passing a wrong value here is precisely what caused the "treadmesh" incident:
+# a hand-typed --build-arg baked a misspelled host with a missing NodePort into
+# .next/static, which broke login and register in the cluster and could only be
+# corrected by a rebuild. See docs/phases/phase-09-deployment.md. The fewer
+# build args a deployment needs, the fewer strings there are to get wrong.
+#
+# Override only for a deployment that genuinely has a SEPARATE API origin
+# (docker-compose.apps.yml does -- frontend on 3000, backend on 8080):
 #   docker build \
 #     --build-arg NEXT_PUBLIC_API_BASE_URL=https://api.example.com \
 #     --build-arg NEXT_PUBLIC_WS_URL=https://api.example.com/ws \
 #     -t trademesh-frontend .
-#
-# The defaults below match frontend/.env.example, so a bare `docker build`
-# produces a locally-working image.
 # =============================================================================
-ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:8080
-ARG NEXT_PUBLIC_WS_URL=http://localhost:8080/ws
+ARG NEXT_PUBLIC_API_BASE_URL=same-origin
+ARG NEXT_PUBLIC_WS_URL=same-origin
 ARG NEXT_PUBLIC_SYMBOLS=AAPL,MSFT,GOOG
 
 ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}

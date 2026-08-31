@@ -53,6 +53,24 @@ These are `NEXT_PUBLIC_*`, so they're inlined into the client bundle at build
 time. That's correct here — they're endpoint locations, not secrets. Never put a
 secret in this file.
 
+Because they're inlined, they're **overrides for split-origin setups**, not the
+primary configuration path. Local dev is split-origin (this app on `:3000`, the
+backend on `:8080`), so the defaults above name `localhost:8080` explicitly. A
+same-origin deployment — one host serving both `/` and `/api`, as the
+Kubernetes Ingress does — should leave them unset so no hostname is compiled
+into the image; `frontend/Dockerfile` supplies `same-origin` for both as its
+build-ARG defaults. That literal value makes the app build its URLs against
+whatever origin served the page instead of freezing a hostname at build time.
+Use the sentinel rather than an empty string: `""` is falsy and falls through
+to the `localhost:8080` default.
+
+`NEXT_PUBLIC_API_BASE_URL` is an **origin, not a path prefix** —
+`scheme://host:port`, nothing more. Every path in `src/lib/api.ts` already
+begins with `/api`, so setting the base to `/api` produces `/api/api/...`. See
+the troubleshooting entry in
+[`docs/phases/phase-09-deployment.md`](../docs/phases/phase-09-deployment.md)
+for both times that bit.
+
 ## Backend CORS
 
 The backend currently has **no CORS configuration at all** — no

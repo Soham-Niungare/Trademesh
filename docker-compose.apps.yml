@@ -56,6 +56,16 @@ services:
         # Baked into the client bundle at build time -- see the long note in
         # frontend/Dockerfile. These are the addresses the BROWSER uses, so
         # they are localhost (the published backend port), never `backend:8080`.
+        #
+        # Compose MUST override the Dockerfile's defaults; Kubernetes must not.
+        # The Dockerfile now defaults to same-origin values (`/api`, and a WS
+        # URL derived from window.location), which are correct behind the
+        # cluster's single Ingress -- one host serving both / and /api -- so
+        # the cluster build passes no build args and bakes in no hostname.
+        # Compose has no shared origin: the frontend is published on 3000 and
+        # the backend on 8080, two different origins to the browser, so a
+        # relative `/api` would resolve to the frontend and 404. The split-port
+        # values therefore have to be stated explicitly here.
         NEXT_PUBLIC_API_BASE_URL: http://localhost:8080
         NEXT_PUBLIC_WS_URL: http://localhost:8080/ws
         NEXT_PUBLIC_SYMBOLS: AAPL,MSFT,GOOG

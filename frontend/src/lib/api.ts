@@ -87,9 +87,15 @@ async function apiFetch<T>(path: string, options: RequestOptions = {}): Promise<
     // indistinguishable from "server unreachable" here by design -- the browser
     // withholds the response -- so the message names both, since a backend with
     // no CORS configuration is the far more likely cause during development.
+    // API_BASE_URL is "" in same-origin mode, which would render as "at .".
+    // Name the origin the request actually went to instead -- in that mode it
+    // is the page's own origin, which is the useful thing to see here.
+    const attemptedOrigin =
+      API_BASE_URL ||
+      (typeof window !== "undefined" ? window.location.origin : "same origin");
     throw new ApiError(
       0,
-      `Could not reach the TradeMesh API at ${API_BASE_URL}. Check that the backend is running, ` +
+      `Could not reach the TradeMesh API at ${attemptedOrigin}. Check that the backend is running, ` +
         `and that it allows cross-origin requests from this page (see frontend/README.md).`,
     );
   }
